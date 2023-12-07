@@ -53,101 +53,76 @@ def calculate_total_energy(combination):
     for job, device in combination.items():
         data_size = jobs[job]["Ukuran"]
         execution_energy = calculate_energy(job, device)
-        transfer_energy = calculate_transfer_energy(device, "Fog", data_size)
-        total_energy += execution_energy + transfer_energy
+        transfer_energy_value = calculate_transfer_energy(device, "Fog", data_size)
+        total_energy += execution_energy + transfer_energy_value
 
     return total_energy
 
-# Fungsi untuk menghitung estimasi heuristik
-def calculate_heuristic(job, device):
-    job_size = jobs[job]["Ukuran"]
-    execution_freq = jobs[job]["Eksekusi"]
-    cpu_freq = devices[device]["CPU"]
-    transfer_rate = devices[device]["TransferRate"]
+# Fungsi untuk menghasilkan jalur ant
+def generate_ant_path():
+    ant_path = {}
+    for job in range(1, 11):
+        devices_copy = list(devices.keys())
+        random.shuffle(devices_copy)
+        device = devices_copy[0]
+        ant_path[job] = device
+    return ant_path
 
-    # Hitung estimasi waktu eksekusi pada perangkat
-    execution_time = (job_size / transfer_rate) / cpu_freq
-
-    # Hitung estimasi waktu transfer data
-    transfer_time = job_size / transfer_rate
-
-    # Hitung estimasi heuristik sebagai jumlah waktu eksekusi dan transfer
-    heuristic = execution_time + transfer_time
-
-    return heuristic
-
-# ... (fungsi-fungsi lainnya)
-
-# Fungsi untuk inisialisasi semut
-def initialize_ants(num_ants):
-    ants = [{"current_solution": {}, "visited_jobs": set()} for _ in range(num_ants)]
-    return ants
-
-# Fungsi untuk memilih langkah berdasarkan aturan probabilitas
-def choose_next_job(ant, pheromone_matrix, alpha, beta):
-    remaining_jobs = set(jobs.keys()) - ant["visited_jobs"]
-    probabilities = []
-
-    for job in remaining_jobs:
-        pheromone = pheromone_matrix[ant["current_solution"], job]
-        heuristic = calculate_heuristic(job, ant["current_solution"])
-        probability = pheromone ** alpha * heuristic ** beta
-        probabilities.append((job, probability))
-
-    total_probability = sum(prob for _, prob in probabilities)
-    probabilities = [(job, prob / total_probability) for job, prob in probabilities]
-
-    chosen_job = random.choices(*zip(*probabilities))[0]
-    return chosen_job
-
-# Fungsi untuk memperbarui matriks feromon
-def update_pheromone_matrix(pheromone_matrix, ants, rho, Q):
-    evaporation = 1 - rho
+# Fungsi untuk melakukan pemilihan oleh semut
+def ant_selection(ants, pheromone):
+    selected_ant = None
+    max_prob = 0.0
 
     for ant in ants:
-        total_energy = calculate_total_energy(ant["current_solution"])
-        for job, device in ant["current_solution"].items():
-            pheromone_matrix[device, job] = evaporation * pheromone_matrix[device, job] + Q / total_energy
+        total_energy = calculate_total_energy(ant)
+        pheromone_value = pheromone[ant]
+        probability = pheromone_value / total_energy
 
-    return pheromone_matrix
+        if probability > max_prob:
+            max_prob = probability
+            selected_ant = ant
 
-# Fungsi untuk menjalankan algoritma Ant Colony Optimization
-def ant_colony_optimization(num_ants, max_iterations, alpha, beta, rho, Q):
-    pheromone_matrix = {(device, job): 1.0 for device in devices for job in jobs}
+    return selected_ant
+
+def update_pheromone(pheromone, ants, evaporation_rate):
+    for ant in ants:
+        ant_tuple = tuple(sorted(ant.items()))  # Menggunakan tuple dari item yang diurutkan sebagai kunci
+        total_energy = calculate_total_energy(ant)
+        pheromone_value = pheromone.get(ant_tuple, 0.0)
+        new_pheromone_value = (1 - evaporation_rate) * pheromone_value + (1 / total_energy)
+
+        pheromone[ant_tuple] = new_pheromone_value
+
+    return pheromone
+
+
+# Fungsi untuk menjalankan algoritma ant colony optimization
+def ant_colony_optimization(population_size, generations, evaporation_rate):
+    pheromone = {}
     best_solution = None
-    best_energy = float("inf")
+    best_energy = float('inf')
 
-    for iteration in range(max_iterations):
-        ants = initialize_ants(num_ants)
+    for generation in range(generations):
+        ants = [generate_ant_path() for _ in range(population_size)]
 
         for ant in ants:
-            while len(ant["visited_jobs"]) < len(jobs):
-                next_job = choose_next_job(ant, pheromone_matrix, alpha, beta)
-                ant["visited_jobs"].add(next_job)
-                ant["current_solution"][next_job] = random.choice(list(devices.keys()))
-
-        # Update pheromone matrix
-        pheromone_matrix = update_pheromone_matrix(pheromone_matrix, ants, rho, Q)
-
-        # Find the best solution so far
-        for ant in ants:
-            total_energy = calculate_total_energy(ant["current_solution"])
+            total_energy = calculate_total_energy(ant)
             if total_energy < best_energy:
-                best_solution = ant["current_solution"].copy()
                 best_energy = total_energy
+                best_solution = ant
+
+        pheromone = update_pheromone(pheromone, ants, evaporation_rate)
 
     return best_solution, best_energy
 
-# Jalankan algoritma Ant Colony Optimization
-best_solution, best_energy = ant_colony_optimization(
-    num_ants=10, max_iterations=50, alpha=1, beta=2, rho=0.5, Q=1
-)
+# Jalankan algoritma ant colony optimization
+best_solution, best_energy = ant_colony_optimization(population_size=100, generations=50, evaporation_rate=0.1)
 
 # Tampilkan hasil
 if best_solution is None:
     print("Tidak ditemukan solusi yang memenuhi")
 else:
-    print("Kombinasi tugas dan perangkat mobile dengan energi minimum (Ant Colony Optimization):")
+    print("Kombinasi tugas dan perangkat mobile dengan energi minimum:")
     for job, device in best_solution.items():
         print("Tugas", job, "-> Perangkat Mobile", device)
     print("Total energi:", best_energy)
